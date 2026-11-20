@@ -1,0 +1,13 @@
+# Challenge data and anything derived from it stay local (PhysioNet data use terms; size)
+data/
+out/
+logs/
+# local environments
+.venv/
+.venv-entry/
+# upstream template clone (has its own git history)
+official-example/
+__pycache__/
+*.pyc
+# patient-level rows (demographics + predictions) from the Challenge data: not for redistribution
+submission/example_holdout_predictions_*.csv
