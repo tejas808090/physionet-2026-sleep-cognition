@@ -4,8 +4,8 @@ Entry for the George B. Moody PhysioNet Challenge 2026, in the layout of the off
 
 - `team_code.py` — `train_model`, `load_model`, `run_model`.
 - `features.py` — demographic and CAISR annotation features (sleep architecture, staging uncertainty, events).
-- `signals.py` — raw-signal features: EEG spectra by sleep stage, heart-rate variability, oxygen saturation.
-- `model.py` — rank-averaged logistic regression + shallow gradient-boosted trees.
+- `signals.py` — raw-signal features (EEG spectra by stage, heart-rate variability, oxygen saturation); not used by version 2.
+- `model.py` — version 2: one strongly regularised logistic regression (version 1 ensemble kept for reference).
 - `train_model.py`, `run_model.py`, `evaluate_model.py`, `helper_code.py`, `channel_table.csv` — official, unedited.
 
 Run:

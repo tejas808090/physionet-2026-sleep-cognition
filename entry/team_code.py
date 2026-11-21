@@ -10,7 +10,10 @@ import numpy as np
 import pandas as pd
 
 from features import feature_table, record_features
-from model import Ensemble
+from model import LinearModel
+
+# Version 2: logistic regression on demographics + CAISR annotation features; raw signals are not read.
+USE_SIGNALS = False
 
 DEMOGRAPHICS_FILE = 'demographics.csv'
 MODEL_FILE = 'model.joblib'
@@ -31,12 +34,12 @@ def train_model(data_folder, model_folder, verbose):
 
     if verbose:
         print(f'Extracting features from {len(demo)} records...')
-    X = feature_table(data_folder, demo, verbose=verbose)
+    X = feature_table(data_folder, demo, verbose=verbose, signals=USE_SIGNALS)
     y = _labels(demo)
 
     if verbose:
         print(f'Training the model on {len(y)} records ({int(y.sum())} positive)...')
-    model = Ensemble().fit(X, y)
+    model = LinearModel(signal_features=USE_SIGNALS).fit(X, y)
 
     os.makedirs(model_folder, exist_ok=True)
     joblib.dump({'model': model}, os.path.join(model_folder, MODEL_FILE), protocol=4)
@@ -54,7 +57,7 @@ def run_model(model, record, data_folder, verbose):
     demo = pd.read_csv(os.path.join(data_folder, DEMOGRAPHICS_FILE))
     mask = (demo['BidsFolder'] == record['BidsFolder']) & (demo['SessionID'] == record['SessionID'])
     row = demo.loc[mask].iloc[0].to_dict() if mask.any() else dict(record)
-    X = pd.DataFrame([record_features(data_folder, row)])
+    X = pd.DataFrame([record_features(data_folder, row, signals=USE_SIGNALS)])
     probability = float(m.predict_proba(X)[0])
     if not np.isfinite(probability):
         probability = 0.0

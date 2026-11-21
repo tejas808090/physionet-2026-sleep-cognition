@@ -182,12 +182,14 @@ def record_paths(data_folder, row):
             os.path.join(data_folder, PHYS_DIR, str(site), f"{pid}_ses-{ses}.edf"))
 
 
-def record_features(data_folder, row):
-    """All features for one demographics row (dict with SiteID, BidsFolder, SessionID, Age, ...)."""
+def record_features(data_folder, row, signals=True):
+    """All features for one demographics row (dict with SiteID, BidsFolder, SessionID, Age, ...).
+    signals=False skips the raw recording (the version-2 model does not use those features)."""
     algo_path, phys_path = record_paths(data_folder, row)
     f = demographic_features(row)
     f.update(algorithmic_features(algo_path))
-    f.update(_signal_features(phys_path, algo_path, row))
+    if signals:
+        f.update(_signal_features(phys_path, algo_path, row))
     return f
 
 
@@ -203,11 +205,11 @@ def _signal_features(phys_path, algo_path, row):
     return signal_features(phys_path, algo_path)
 
 
-def feature_table(data_folder, demographics, verbose=False):
+def feature_table(data_folder, demographics, verbose=False, signals=True):
     """Feature DataFrame for every row of a demographics DataFrame, in the same order."""
     rows = []
     for i, row in enumerate(demographics.to_dict("records")):
-        rows.append(record_features(data_folder, row))
+        rows.append(record_features(data_folder, row, signals=signals))
         if verbose and (i + 1) % 100 == 0:
             print(f"  features {i + 1}/{len(demographics)}", flush=True)
     return pd.DataFrame(rows, index=demographics.index)

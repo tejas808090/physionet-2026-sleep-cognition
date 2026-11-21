@@ -9,7 +9,7 @@ compared when their ages are within 2 years, so a model has to add information b
 submission format and is scored locally with the organisers' unedited scripts. It has no official ranking, and it has
 not been scored on the hidden validation or test sets.
 
-## Approach
+## Approach (version 2)
 
 `entry/` is a complete Challenge entry (official template, with `train_model.py`, `run_model.py`, `evaluate_model.py`
 and `helper_code.py` unedited).
@@ -17,18 +17,52 @@ and `helper_code.py` unedited).
 | File | What it does |
 |---|---|
 | `entry/features.py` | Demographics, plus 43 sleep-architecture and event features from the CAISR annotations: sleep efficiency, stage shares, REM latency, fragmentation, staging uncertainty, arousal, breathing-event and limb-movement indices. |
-| `entry/signals.py` | 79 features from the raw recording, read one channel at a time: EEG spectra by sleep stage (relative band power, slowing ratios, aperiodic slope, alpha and spindle peak), heart-rate variability by stage, oxygen saturation (desaturation index, hypoxic burden). |
-| `entry/model.py` | Rank-averaged ensemble of a regularised logistic regression and shallow gradient-boosted trees. Inputs that describe the recording set-up, not the patient (channel count, absolute amplitude, BMI availability), and age itself, are left out. |
+| `entry/model.py` | `LinearModel` (version 2): one strongly regularised logistic regression (C = 0.005) on log-compressed, standardised features. Inputs that describe the recording set-up rather than the patient (channel count, absolute amplitude, BMI availability), and age itself, are left out. `Ensemble` (version 1) is kept for reference. |
 | `entry/team_code.py` | The three functions the Challenge calls: `train_model`, `load_model`, `run_model`. |
+| `entry/signals.py` | 79 features from the raw recording (EEG spectra by sleep stage, heart-rate variability, oxygen saturation). Built and tested in version 1; version 2 does not use them (see below), so the entry no longer reads the raw recordings. |
+
+**What changed from version 1, and why.** Version 1 rank-averaged a logistic regression with shallow boosted trees
+and used the raw-signal features. Version 2 followed three findings:
+
+1. On all 1,090 small-set patients with annotations, the boosted trees alone scored 0.597 and the logistic model alone
+   0.634, so the trees were diluting the ensemble (0.629).
+2. Much stronger regularisation helped: 5× repeated 5-fold CV gave 0.615 at C = 1, 0.630 at C = 0.05 (version 1) and
+   0.644 at C = 0.005, flat between 0.003 and 0.005.
+3. On the 168 records with raw-signal summaries, the same logistic model scored 0.631 without the raw-signal features
+   and 0.600 with them (10× repeated CV). Dropping them also makes the entry much faster.
+
+Residualising each feature on age, adding age back as an input, and boosted trees alone were also tried; none helped
+(`src/exp_v2.py`).
 
 ## Results (local, limited data)
 
-The small training set is 229 GB (1,103 recordings), too large for the development PC. Raw recordings were therefore
-streamed one at a time (download, reduce to a per-epoch summary of about 1.5 MB, delete) for a case-control subset:
-all 84 positive patients and 84 negatives matched on site and age (every pair within 2 years).
-All 168 recordings have been processed; 22 of them give only 58 of the 79 raw-signal features.
+The small training set is 229 GB (1,103 recordings), too large for the development PC. The CAISR annotation files
+(0.5 GB) were downloaded for every patient that has one (1,090, including all 84 positives, 7.7%). Raw recordings
+were streamed one at a time (download, reduce to a per-epoch summary of about 1.5 MB, delete) for a case-control subset
+of 168: all 84 positive patients and 84 negatives matched on site and age (every pair within 2 years).
 
-Repeated 5-fold cross-validation (10 repeats) on the 168 matched records, official metric:
+**Official loop** (`src/run_loop.sh`: `train_model.py` → `run_model.py` on a held-out 25% with labels removed →
+`evaluate_model.py`), run in a Python 3.10 environment with the entry's pinned packages. Each row compares the two
+versions on the same five splits:
+
+| Records (holdout size) | Version 1 per split | v1 mean | Version 2 per split | v2 mean |
+|---|---|---|---|---|
+| 1,054 patients, natural prevalence (264) | 0.691, 0.642, 0.475, 0.561, 0.614 | 0.597 | 0.707, 0.705, 0.603, 0.569, 0.633 | **0.643** |
+| 168 matched cases and controls (42) | 0.694, 0.738, 0.635, 0.681, 0.621 ¹ | 0.674 | 0.681, 0.794, 0.676, 0.674, 0.667 | **0.698** |
+| 1,090 patients, natural prevalence (273) | | | 0.553, 0.753, 0.696, 0.588, 0.583 | 0.635 |
+
+¹ Version 1 without its raw-signal features; with them (the version 1 entry as shipped) the mean was 0.646.
+
+Version 2 is ahead on four of five splits in both comparisons. Holdouts with 21 positives swing by ±0.1 from split to
+split, so the per-split numbers are noisy; the cross-validated numbers above are the steadier comparison.
+
+For reference, on the hidden test set the winning team scored 0.749 and the median of the 42 ranked teams 0.629
+(`reference/challenge_2026_results.tsv`). Those teams trained on the full data and were scored on other hospitals, so
+the numbers are not directly comparable with the ones here.
+
+### What was tried with the raw recordings (version 1)
+
+Repeated 5-fold cross-validation (10 repeats) on the 168 matched records, version 1 model, official metric:
 
 | Features | Age-conditioned AUROC |
 |---|---|
@@ -40,47 +74,19 @@ Repeated 5-fold cross-validation (10 repeats) on the 168 matched records, offici
 | Staging + EEG + SpO2 | 0.604 ± 0.028 |
 | Staging + all signals | 0.595 ± 0.027 |
 
-(± is the spread over CV repeats, not a confidence interval; with 84 positives the sampling error is roughly ±0.04.
-The raw-signal features do not improve on the staging and event features here. An earlier run on 42 of the pairs
-gave EEG 0.593 and staging 0.559, the opposite order, which shows how unstable the ranking is at this sample size.)
-
-Official loop (`src/run_loop.sh`: `train_model.py` → `run_model.py` on a held-out 25% with labels removed →
-`evaluate_model.py`), run in a Python 3.10 environment with the entry's pinned packages. Both rows use the same five
-splits of the 168 matched records (126 for training, 42 held out):
-
-| Features used | Age-conditioned AUROC per split | Mean |
-|---|---|---|
-| Demographics + sleep staging and events | 0.694, 0.738, 0.635, 0.681, 0.621 | 0.674 |
-| Everything (the entry as shipped) | 0.569, 0.762, 0.676, 0.556, 0.667 | 0.646 |
-
-Adding the raw-signal features raised the score on three splits and lowered it on two, by 0.03 on average, which is
-within noise for 42-record holdouts.
-
-**At the natural positive rate.** Annotation files (no raw recordings needed) were fetched for 1,054 of the 1,103
-small-set patients, including all 84 positives (8.0%). On these, with demographics and sleep staging/event features
-only (no raw-signal features, which exist for just the 168):
-
-| Evaluation | Age-conditioned AUROC |
-|---|---|
-| 5-fold CV, 5 repeats: sex, race and ethnicity only | 0.499 ± 0.019 |
-| 5-fold CV, 5 repeats: plus sleep staging and events | 0.623 ± 0.014 |
-| Official loop, five splits (790 train / 264 held out, 21 positives each) | 0.691, 0.642, 0.475, 0.561, 0.614 (mean 0.597) |
-
-For reference, on the hidden test set the winning team scored 0.749 and the median of the 42 ranked teams 0.629
-(`reference/challenge_2026_results.tsv`). Those teams trained on the full data, so the numbers are not directly
-comparable with the ones above.
+EEG and oxygen-saturation features carry some signal on their own, but in this sample they add nothing on top of the
+staging and event features. With 84 positives the sampling error is roughly ±0.04, and an earlier run on 42 of the
+pairs gave the opposite order, so this may change with more data. `signals.py` and the streaming pipeline stay in the
+repository for that reason.
 
 ## Limits
 
-- **Small, selected sample.** Raw-signal results come from 168 of 1,103 small-set records, chosen as matched cases and
-  controls. Differences between feature groups are within noise.
+- **Small sample.** Results come from at most 1,090 small-set patients with 84 positives; raw-signal results from 168
+  matched records. Differences under about 0.03 are within noise.
 - **No hidden-set score.** Everything is cross-validation or a local holdout on training data.
 - **No Docker run.** Docker is not installed on the development PC. The entry was run in a clean Python 3.10
   environment with the pinned `requirements.txt`; the Docker image itself has not been built.
   `src/docker_loop.sh` builds it and repeats the official loop inside the container (untested so far).
-- **Raw files not kept.** Locally the entry reads cached per-epoch summaries (`PSG_SIGNAL_CACHE`) in place of the raw
-  recordings. With raw recordings present it reads them directly; that path was checked on real recordings during the
-  streaming step and on a synthetic recording.
 - **Dataset shortcuts.** In the small set the positive rate rises with recording year (20% for 2016–2019 against 4–5%
   before 2014) and is 19.5% where BMI is recorded against 3.8% where it is missing. These reflect how the data were
   assembled. The model does not use recording date or BMI.
@@ -88,18 +94,17 @@ comparable with the ones above.
 ## Reproduce
 
 ```bash
-# data: annotations for a matched subset + streamed raw-signal summaries (resumable, never stores more than one recording)
+# data: annotations for everyone + streamed raw-signal summaries for the matched subset (resumable)
 .venv/Scripts/python.exe -I src/fetch.py 1 ABC
-# cross-validation with the official metric
-.venv/Scripts/python.exe -I src/cv.py data/small out/cv matched168 10 matched
+# version 2 model choices (logistic regularisation, variants) on all annotated patients
+.venv/Scripts/python.exe -I src/exp_v2.py data/small 5 lr@0.002,lr@0.005,lr@0.05,base,gb,resid,with_age
+# cross-validation of feature groups with the official metric (version 1 model)
 .venv/Scripts/python.exe -I src/cv.py data/small out/cv pairs 10 pairs
-.venv/Scripts/python.exe -I src/cv.py data/small out/cv all 5 all
-# official train -> predict -> score loop in the pinned environment
-bash src/run_loop.sh full_s0 0 data/subset.csv
-bash src/run_loop.sh matched_s0 0 data/subset.csv nosignals
-bash src/run_loop.sh all_s0 0 data/with_annotations.csv nosignals
+# official train -> predict -> score loop in the pinned environment (version 2 entry)
+bash src/run_loop.sh v2_all_s0 0 data/with_annotations_1090.csv nosignals
+bash src/run_loop.sh v2_matched_s0 0 data/subset.csv nosignals
 # the same loop inside the entry's Docker image (run in WSL/Linux with Docker installed)
-sudo bash src/docker_loop.sh full_s0
+sudo bash src/docker_loop.sh v2_all_s0
 ```
 
 `submission/physionet2026_entry.zip` is the entry packaged as the repository root the organisers ask for.
